@@ -109,10 +109,11 @@ spec:
               drop: ["ALL"]
         # --- COSI sidecar (provided by sigs.k8s.io) ---
         - name: objectstorage-provisioner-sidecar
-          image: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar:v20240513-v0.1.0-35-gefb3255
+          image: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar:v20260619-controllerv0.2.0-rc1-291-g46fde39
           imagePullPolicy: IfNotPresent
+          # v0.2 sidecar uses zap flags, not klog -v; default args are fine.
           args:
-            - "--v=4"
+            - "--zap-log-level=info"
           env:
             - name: COSI_ENDPOINT
               value: "unix:///var/lib/cosi/cosi.sock"

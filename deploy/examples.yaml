@@ -1,14 +1,14 @@
-# Example COSI objects exercising the h3llo driver end to end.
+# Example COSI objects exercising the h3llo driver end to end (API v1alpha2).
 # Apply after driver.yaml is running. driverName MUST equal driver.DriverName.
 ---
-apiVersion: objectstorage.k8s.io/v1alpha1
+apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketClass
 metadata:
   name: h3llo-standard
 driverName: s3.h3llo.cloud
 deletionPolicy: Delete # Retain to keep the h3llo bucket on claim delete
 ---
-apiVersion: objectstorage.k8s.io/v1alpha1
+apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketAccessClass
 metadata:
   name: h3llo-key
@@ -16,7 +16,7 @@ driverName: s3.h3llo.cloud
 authenticationType: Key # h3llo supports Key (shared access key pair) only
 ---
 # Request a bucket.
-apiVersion: objectstorage.k8s.io/v1alpha1
+apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketClaim
 metadata:
   name: my-bucket
@@ -25,8 +25,8 @@ spec:
   bucketClassName: h3llo-standard
   protocols: ["S3"]
 ---
-# Request credentials for it. Credentials land in a Secret named below.
-apiVersion: objectstorage.k8s.io/v1alpha1
+# Request credentials for it. Credentials land in the Secret named below.
+apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketAccess
 metadata:
   name: my-bucket-access
@@ -36,4 +36,4 @@ spec:
   bucketAccessClassName: h3llo-key
   protocol: S3
   # Driver-returned credentials are written to this Secret in the namespace.
-  credentialsSecretName: my-bucket-creds
+  accessSecretName: my-bucket-creds

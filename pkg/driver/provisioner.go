@@ -23,8 +23,21 @@ func NewProvisionerServer(cfg Config) *ProvisionerServer {
 	return &ProvisionerServer{cfg: cfg, client: cfg.newClient()}
 }
 
-// DriverCreateBucket creates a bucket in h3llo. The bucket is identified by
-// its name; we use the name as the COSI bucket_id. Idempotent.
+// s3BucketInfo builds the S3 protocol bucket info handed to consumers.
+// h3llo (Ceph RGW) uses path-style addressing.
+func (s *ProvisionerServer) s3BucketInfo(bucketID string) *cosi.ObjectProtocolAndBucketInfo {
+	return &cosi.ObjectProtocolAndBucketInfo{
+		S3: &cosi.S3BucketInfo{
+			BucketId:        bucketID,
+			Endpoint:        s.cfg.S3Endpoint,
+			Region:          s.cfg.Region,
+			AddressingStyle: &cosi.S3AddressingStyle{Style: cosi.S3AddressingStyle_PATH},
+		},
+	}
+}
+
+// DriverCreateBucket creates a bucket in h3llo. The bucket is identified by its
+// name; we use the name as the COSI bucket_id. Idempotent.
 func (s *ProvisionerServer) DriverCreateBucket(
 	ctx context.Context, req *cosi.DriverCreateBucketRequest,
 ) (*cosi.DriverCreateBucketResponse, error) {
@@ -39,15 +52,8 @@ func (s *ProvisionerServer) DriverCreateBucket(
 	}
 
 	return &cosi.DriverCreateBucketResponse{
-		BucketId: name,
-		BucketInfo: &cosi.Protocol{
-			Type: &cosi.Protocol_S3{
-				S3: &cosi.S3{
-					Region:           s.cfg.Region,
-					SignatureVersion: cosi.S3SignatureVersion_S3V4,
-				},
-			},
-		},
+		BucketId:  name,
+		Protocols: s.s3BucketInfo(name),
 	}, nil
 }
 
@@ -67,60 +73,64 @@ func (s *ProvisionerServer) DriverDeleteBucket(
 	return &cosi.DriverDeleteBucketResponse{}, nil
 }
 
-// DriverGrantBucketAccess returns credentials for accessing the bucket.
+// DriverGrantBucketAccess returns credentials for accessing the requested
+// buckets.
 //
-// h3llo has no per-bucket access API: a single shared key pair grants access
-// to every bucket in the project, and the public API returns that pair from
-// the (idempotent) create-bucket call. We re-issue create — which by then has
-// already succeeded — to obtain the shared credentials. account_id is the
-// access key ID.
+// h3llo has no per-bucket access API: a single shared key pair grants access to
+// every bucket in the project, and the public API returns that pair from the
+// (idempotent) create-bucket call. We fetch it once and return it for all
+// requested buckets. account_id is the access key ID.
 func (s *ProvisionerServer) DriverGrantBucketAccess(
 	ctx context.Context, req *cosi.DriverGrantBucketAccessRequest,
 ) (*cosi.DriverGrantBucketAccessResponse, error) {
-	bucket := req.GetBucketId()
-	if bucket == "" {
-		return nil, status.Error(codes.InvalidArgument, "bucket_id is required")
+	buckets := req.GetBuckets()
+	if len(buckets) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one bucket is required")
 	}
-	if req.GetAuthenticationType() != cosi.AuthenticationType_Key {
+	if req.GetAuthenticationType().GetType() != cosi.AuthenticationType_KEY {
 		return nil, status.Errorf(codes.InvalidArgument,
-			"unsupported authentication type %v: only Key is supported", req.GetAuthenticationType())
+			"unsupported authentication type %v: only KEY is supported",
+			req.GetAuthenticationType().GetType())
 	}
-	klog.InfoS("DriverGrantBucketAccess", "bucketId", bucket, "name", req.GetName())
+	klog.InfoS("DriverGrantBucketAccess", "account", req.GetAccountName(), "buckets", len(buckets))
 
-	creds, err := s.client.CreateBucket(ctx, bucket)
+	// The key is project-wide; one (idempotent) create returns it for any bucket.
+	creds, err := s.client.CreateBucket(ctx, buckets[0].GetBucketId())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "fetch access credentials: %v", err)
 	}
 
-	// Secret keys follow the COSI S3 convention so consumers can mount and
-	// use them directly. endpoint/bucketName live here because the S3
-	// Protocol message carries neither.
-	secrets := map[string]string{
-		"accessKeyID":     creds.AccessKeyID,
-		"accessSecretKey": creds.SecretAccessKey,
-		"endpoint":        s.cfg.S3Endpoint,
-		"region":          s.cfg.Region,
-		"bucketName":      bucket,
+	infos := make([]*cosi.DriverGrantBucketAccessResponse_BucketInfo, 0, len(buckets))
+	for _, b := range buckets {
+		id := b.GetBucketId()
+		infos = append(infos, &cosi.DriverGrantBucketAccessResponse_BucketInfo{
+			BucketId:   id,
+			BucketInfo: s.s3BucketInfo(id),
+		})
 	}
 
 	return &cosi.DriverGrantBucketAccessResponse{
 		AccountId: creds.AccessKeyID,
-		Credentials: map[string]*cosi.CredentialDetails{
-			"s3": {Secrets: secrets},
+		Buckets:   infos,
+		Credentials: &cosi.CredentialInfo{
+			S3: &cosi.S3CredentialInfo{
+				AccessKeyId:     creds.AccessKeyID,
+				AccessSecretKey: creds.SecretAccessKey,
+			},
 		},
 	}, nil
 }
 
 // DriverRevokeBucketAccess is a no-op.
 //
-// The project shares one key pair across all buckets, so revoking access for
-// a single bucket would break every other bucket. Rotating the project key is
-// an out-of-band operation. We return success so COSI can finalize the
+// The project shares one key pair across all buckets, so revoking access for a
+// single bucket would break every other bucket. Rotating the project key is an
+// out-of-band operation. We return success so COSI can finalize the
 // BucketAccess object.
 func (s *ProvisionerServer) DriverRevokeBucketAccess(
 	_ context.Context, req *cosi.DriverRevokeBucketAccessRequest,
 ) (*cosi.DriverRevokeBucketAccessResponse, error) {
 	klog.InfoS("DriverRevokeBucketAccess: no-op (shared project key)",
-		"bucketId", req.GetBucketId(), "accountId", req.GetAccountId())
+		"accountId", req.GetAccountId())
 	return &cosi.DriverRevokeBucketAccessResponse{}, nil
 }

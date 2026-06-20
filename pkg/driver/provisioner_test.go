@@ -14,7 +14,7 @@ func testServer(t *testing.T, h http.HandlerFunc) *ProvisionerServer {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	cfg := Config{
-		S3Endpoint: "https://s3.h3llo.cloud",
+		S3Endpoint: "https://storage.h3llo.cloud",
 		Region:     "ru-1",
 		APIBaseURL: srv.URL,
 		KeyID:      "kid",
@@ -24,11 +24,13 @@ func testServer(t *testing.T, h http.HandlerFunc) *ProvisionerServer {
 	return NewProvisionerServer(cfg)
 }
 
+func credsHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte(`{"credentials":{"access_key_id":"AK","secret_access_key":"SK"}}`))
+}
+
 func TestCreateBucketReturnsIDAndProtocol(t *testing.T) {
-	s := testServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"credentials":{"access_key_id":"AK","secret_access_key":"SK"}}`))
-	})
+	s := testServer(t, credsHandler)
 	resp, err := s.DriverCreateBucket(context.Background(),
 		&cosi.DriverCreateBucketRequest{Name: "b1"})
 	if err != nil {
@@ -37,9 +39,15 @@ func TestCreateBucketReturnsIDAndProtocol(t *testing.T) {
 	if resp.GetBucketId() != "b1" {
 		t.Errorf("bucketId = %q, want b1", resp.GetBucketId())
 	}
-	s3 := resp.GetBucketInfo().GetS3()
-	if s3 == nil || s3.GetRegion() != "ru-1" {
-		t.Errorf("bucketInfo S3 = %+v", s3)
+	s3 := resp.GetProtocols().GetS3()
+	if s3 == nil || s3.GetRegion() != "ru-1" || s3.GetBucketId() != "b1" {
+		t.Errorf("protocols S3 = %+v", s3)
+	}
+	if s3.GetEndpoint() != "https://storage.h3llo.cloud" {
+		t.Errorf("endpoint = %q", s3.GetEndpoint())
+	}
+	if s3.GetAddressingStyle().GetStyle() != cosi.S3AddressingStyle_PATH {
+		t.Errorf("addressing style = %v, want PATH", s3.GetAddressingStyle().GetStyle())
 	}
 }
 
@@ -51,15 +59,19 @@ func TestCreateBucketEmptyName(t *testing.T) {
 	}
 }
 
+func keyAuth() *cosi.AuthenticationType {
+	return &cosi.AuthenticationType{Type: cosi.AuthenticationType_KEY}
+}
+
 func TestGrantBucketAccessReturnsSharedKey(t *testing.T) {
-	s := testServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"credentials":{"access_key_id":"AK","secret_access_key":"SK"}}`))
-	})
+	s := testServer(t, credsHandler)
 	resp, err := s.DriverGrantBucketAccess(context.Background(),
 		&cosi.DriverGrantBucketAccessRequest{
-			BucketId:           "b1",
-			Name:               "acc",
-			AuthenticationType: cosi.AuthenticationType_Key,
+			AccountName:        "acc",
+			AuthenticationType: keyAuth(),
+			Buckets: []*cosi.DriverGrantBucketAccessRequest_AccessedBucket{
+				{BucketId: "b1"},
+			},
 		})
 	if err != nil {
 		t.Fatalf("DriverGrantBucketAccess: %v", err)
@@ -67,24 +79,54 @@ func TestGrantBucketAccessReturnsSharedKey(t *testing.T) {
 	if resp.GetAccountId() != "AK" {
 		t.Errorf("accountId = %q, want AK", resp.GetAccountId())
 	}
-	creds := resp.GetCredentials()["s3"].GetSecrets()
-	if creds["accessKeyID"] != "AK" || creds["accessSecretKey"] != "SK" {
-		t.Errorf("creds = %+v", creds)
+	s3 := resp.GetCredentials().GetS3()
+	if s3.GetAccessKeyId() != "AK" || s3.GetAccessSecretKey() != "SK" {
+		t.Errorf("credentials = %+v", s3)
 	}
-	if creds["bucketName"] != "b1" || creds["endpoint"] != "https://s3.h3llo.cloud" {
-		t.Errorf("creds endpoint/bucket = %+v", creds)
+	infos := resp.GetBuckets()
+	if len(infos) != 1 || infos[0].GetBucketId() != "b1" {
+		t.Fatalf("bucket infos = %+v", infos)
+	}
+	if infos[0].GetBucketInfo().GetS3().GetEndpoint() != "https://storage.h3llo.cloud" {
+		t.Errorf("bucket info endpoint = %q", infos[0].GetBucketInfo().GetS3().GetEndpoint())
 	}
 }
 
-func TestGrantBucketAccessRejectsIAM(t *testing.T) {
+func TestGrantBucketAccessMultipleBuckets(t *testing.T) {
+	s := testServer(t, credsHandler)
+	resp, err := s.DriverGrantBucketAccess(context.Background(),
+		&cosi.DriverGrantBucketAccessRequest{
+			AuthenticationType: keyAuth(),
+			Buckets: []*cosi.DriverGrantBucketAccessRequest_AccessedBucket{
+				{BucketId: "b1"}, {BucketId: "b2"},
+			},
+		})
+	if err != nil {
+		t.Fatalf("DriverGrantBucketAccess: %v", err)
+	}
+	if len(resp.GetBuckets()) != 2 {
+		t.Errorf("want 2 bucket infos, got %d", len(resp.GetBuckets()))
+	}
+}
+
+func TestGrantBucketAccessRejectsNonKey(t *testing.T) {
 	s := testServer(t, func(http.ResponseWriter, *http.Request) {})
 	_, err := s.DriverGrantBucketAccess(context.Background(),
 		&cosi.DriverGrantBucketAccessRequest{
-			BucketId:           "b1",
-			AuthenticationType: cosi.AuthenticationType_IAM,
+			AuthenticationType: &cosi.AuthenticationType{Type: cosi.AuthenticationType_UNKNOWN},
+			Buckets:            []*cosi.DriverGrantBucketAccessRequest_AccessedBucket{{BucketId: "b1"}},
 		})
 	if err == nil {
-		t.Fatal("expected error for IAM auth type")
+		t.Fatal("expected error for non-KEY auth type")
+	}
+}
+
+func TestGrantBucketAccessNoBuckets(t *testing.T) {
+	s := testServer(t, func(http.ResponseWriter, *http.Request) {})
+	_, err := s.DriverGrantBucketAccess(context.Background(),
+		&cosi.DriverGrantBucketAccessRequest{AuthenticationType: keyAuth()})
+	if err == nil {
+		t.Fatal("expected error with no buckets")
 	}
 }
 
@@ -93,7 +135,7 @@ func TestRevokeIsNoOp(t *testing.T) {
 		t.Fatal("revoke must not call the API")
 	})
 	if _, err := s.DriverRevokeBucketAccess(context.Background(),
-		&cosi.DriverRevokeBucketAccessRequest{BucketId: "b1", AccountId: "AK"}); err != nil {
+		&cosi.DriverRevokeBucketAccessRequest{AccountId: "AK"}); err != nil {
 		t.Fatalf("DriverRevokeBucketAccess: %v", err)
 	}
 }
