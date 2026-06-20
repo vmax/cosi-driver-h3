@@ -1,0 +1,124 @@
+# h3llo COSI driver: ServiceAccount, RBAC, and Deployment (driver + sidecar).
+#
+# Prereqs (install once per cluster, from sigs.k8s.io/container-object-storage-interface):
+#   - COSI CRDs        (buckets, bucketclaims, bucketaccesses, ...)
+#   - COSI controller  (objectstorage-controller)
+# See: https://github.com/kubernetes-sigs/container-object-storage-interface
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: h3llo-cosi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: h3llo-cosi-driver
+  namespace: h3llo-cosi
+---
+# RBAC required by the COSI sidecar to watch/update Bucket & BucketAccess objects.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: h3llo-cosi-driver
+rules:
+  - apiGroups: ["objectstorage.k8s.io"]
+    resources: ["buckets", "bucketaccesses", "bucketclaims", "bucketaccessclasses", "bucketclasses"]
+    verbs: ["get", "list", "watch", "update", "create", "delete"]
+  - apiGroups: ["objectstorage.k8s.io"]
+    resources: ["buckets/status", "bucketaccesses/status", "bucketclaims/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets", "events"]
+    verbs: ["get", "delete", "update", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: h3llo-cosi-driver
+subjects:
+  - kind: ServiceAccount
+    name: h3llo-cosi-driver
+    namespace: h3llo-cosi
+roleRef:
+  kind: ClusterRole
+  name: h3llo-cosi-driver
+  apiGroup: rbac.authorization.k8s.io
+---
+# h3llo API credentials (HMAC). Replace with your real values (or seal/ESO this).
+#   H3_KEY_ID: API key id (UUID) from console > keys > api-keys
+#   H3_SECRET_KEY: API secret (h3_...) for HMAC signing
+#   H3LLO_PROJECT_ID: project UUID
+apiVersion: v1
+kind: Secret
+metadata:
+  name: h3llo-api-credentials
+  namespace: h3llo-cosi
+type: Opaque
+stringData:
+  H3_KEY_ID: "REPLACE_ME"
+  H3_SECRET_KEY: "REPLACE_ME"
+  H3LLO_PROJECT_ID: "REPLACE_ME"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: h3llo-cosi-driver
+  namespace: h3llo-cosi
+  labels:
+    app.kubernetes.io/name: h3llo-cosi-driver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: h3llo-cosi-driver
+  strategy:
+    type: Recreate # single socket, no two writers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: h3llo-cosi-driver
+    spec:
+      serviceAccountName: h3llo-cosi-driver
+      containers:
+        # --- our driver ---
+        - name: driver
+          image: ghcr.io/vmax/cosi-driver-h3:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--endpoint=unix:///var/lib/cosi/cosi.sock"
+            - "--v=4"
+          env:
+            - name: H3LLO_S3_ENDPOINT
+              value: "https://storage.h3llo.cloud"
+            - name: H3LLO_REGION
+              value: "us-east-1"
+            - name: H3_API_ENDPOINT
+              value: "https://api.h3llo.cloud"
+          envFrom:
+            - secretRef:
+                name: h3llo-api-credentials
+          volumeMounts:
+            - name: cosi-socket
+              mountPath: /var/lib/cosi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+        # --- COSI sidecar (provided by sigs.k8s.io) ---
+        - name: objectstorage-provisioner-sidecar
+          image: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar:v20240513-v0.1.0-35-gefb3255
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--v=4"
+          env:
+            - name: COSI_ENDPOINT
+              value: "unix:///var/lib/cosi/cosi.sock"
+          volumeMounts:
+            - name: cosi-socket
+              mountPath: /var/lib/cosi
+      volumes:
+        - name: cosi-socket
+          emptyDir: {}

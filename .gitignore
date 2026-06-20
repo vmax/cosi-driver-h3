@@ -1,0 +1,7 @@
+/bin/
+*.out
+*.test
+.DS_Store
+/smoke
+*.swp
+*.swo
