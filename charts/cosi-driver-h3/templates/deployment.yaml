@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cosi-driver-h3.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cosi-driver-h3.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single gRPC socket; no two writers
+  selector:
+    matchLabels:
+      {{- include "cosi-driver-h3.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cosi-driver-h3.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cosi-driver-h3.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: driver
+          image: {{ include "cosi-driver-h3.driverImage" . }}
+          imagePullPolicy: {{ .Values.driver.image.pullPolicy }}
+          args:
+            - "--endpoint=unix:///var/lib/cosi/cosi.sock"
+            - "--v={{ .Values.driver.logLevel }}"
+          env:
+            - name: H3LLO_S3_ENDPOINT
+              value: {{ .Values.h3.s3Endpoint | quote }}
+            - name: H3LLO_REGION
+              value: {{ .Values.h3.region | quote }}
+            - name: H3_API_ENDPOINT
+              value: {{ .Values.h3.apiEndpoint | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "cosi-driver-h3.secretName" . }}
+          volumeMounts:
+            - name: cosi-socket
+              mountPath: /var/lib/cosi
+          resources:
+            {{- toYaml .Values.driver.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+        - name: objectstorage-provisioner-sidecar
+          image: "{{ .Values.sidecar.image.repository }}:{{ .Values.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecar.image.pullPolicy }}
+          env:
+            - name: COSI_ENDPOINT
+              value: "unix:///var/lib/cosi/cosi.sock"
+          volumeMounts:
+            - name: cosi-socket
+              mountPath: /var/lib/cosi
+          resources:
+            {{- toYaml .Values.sidecar.resources | nindent 12 }}
+      volumes:
+        - name: cosi-socket
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

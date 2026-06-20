@@ -1,0 +1,26 @@
+cosi-driver-h3 {{ .Chart.AppVersion }} installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+Driver:  {{ include "cosi-driver-h3.driverImage" . }}
+Sidecar: {{ .Values.sidecar.image.repository }}:{{ .Values.sidecar.image.tag }}
+
+Prerequisites (install once per cluster, if not already present):
+  COSI CRDs + controller from
+  https://github.com/kubernetes-sigs/container-object-storage-interface
+
+Check the driver is running:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "cosi-driver-h3.fullname" . }}
+
+{{- if .Values.bucketClass.create }}
+
+Provision a bucket:
+  apiVersion: objectstorage.k8s.io/v1alpha2
+  kind: BucketClaim
+  metadata: { name: my-bucket, namespace: default }
+  spec:
+    bucketClassName: {{ .Values.bucketClass.name }}
+    protocols: ["S3"]
+{{- end }}
+
+NOTE: On COSI builds before sidecar bucket-deletion lands (PR #320), deleting a
+BucketClaim removes the k8s objects but may orphan the backend bucket. See the
+chart README / project docs.

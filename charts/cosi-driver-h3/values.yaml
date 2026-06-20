@@ -1,0 +1,69 @@
+# Default values for cosi-driver-h3.
+
+driver:
+  image:
+    repository: ghcr.io/vmax/cosi-driver-h3
+    tag: "" # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  # Log verbosity (klog -v).
+  logLevel: 4
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# COSI sidecar (provided by sigs.k8s.io). Pin to a trusted release.
+sidecar:
+  image:
+    repository: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar
+    tag: "v20260619-controllerv0.2.0-rc1-291-g46fde39"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# h3llo connection settings.
+h3:
+  # Project UUID (required).
+  projectId: ""
+  # Public API base (HMAC-signed).
+  apiEndpoint: "https://api.h3llo.cloud"
+  # S3 data-plane endpoint handed to bucket consumers.
+  s3Endpoint: "https://storage.h3llo.cloud"
+  # Region advertised to consumers.
+  region: "us-east-1"
+
+# API credentials (HMAC key-id + secret).
+credentials:
+  # Provide inline (templated into a Secret)...
+  keyId: ""
+  secretKey: ""
+  # ...or reference a pre-existing Secret with keys
+  # H3_KEY_ID / H3_SECRET_KEY / H3LLO_PROJECT_ID. Takes precedence when set.
+  existingSecret: ""
+
+# Optionally create a BucketClass / BucketAccessClass with the chart.
+bucketClass:
+  create: true
+  name: h3llo-standard
+  deletionPolicy: Delete # Retain | Delete
+bucketAccessClass:
+  create: true
+  name: h3llo-key
+  authenticationType: Key
+
+serviceAccount:
+  name: "" # defaults to the fullname
+
+# Pull secret name(s) for private driver/sidecar images, if needed.
+imagePullSecrets: []
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

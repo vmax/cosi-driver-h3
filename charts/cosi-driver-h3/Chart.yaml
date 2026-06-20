@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cosi-driver-h3
+description: COSI driver for h3llo.cloud (h3) S3 object storage
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - cosi
+  - object-storage
+  - s3
+  - ceph
+  - h3llo
+home: https://github.com/vmax/cosi-driver-h3
+sources:
+  - https://github.com/vmax/cosi-driver-h3
+maintainers:
+  - name: vmax
