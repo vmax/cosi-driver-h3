@@ -5,15 +5,17 @@ apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketClass
 metadata:
   name: h3llo-standard
-driverName: s3.h3llo.cloud
-deletionPolicy: Delete # Retain to keep the h3llo bucket on claim delete
+spec:
+  driverName: s3.h3llo.cloud
+  deletionPolicy: Delete # Retain to keep the h3llo bucket on claim delete
 ---
 apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketAccessClass
 metadata:
   name: h3llo-key
-driverName: s3.h3llo.cloud
-authenticationType: Key # h3llo supports Key (shared access key pair) only
+spec:
+  driverName: s3.h3llo.cloud
+  authenticationType: Key # h3llo supports Key (shared access key pair) only
 ---
 # Request a bucket.
 apiVersion: objectstorage.k8s.io/v1alpha2
@@ -25,15 +27,16 @@ spec:
   bucketClassName: h3llo-standard
   protocols: ["S3"]
 ---
-# Request credentials for it. Credentials land in the Secret named below.
+# Request credentials. Per-claim credentials land in the named Secret.
 apiVersion: objectstorage.k8s.io/v1alpha2
 kind: BucketAccess
 metadata:
   name: my-bucket-access
   namespace: default
 spec:
-  bucketClaimName: my-bucket
   bucketAccessClassName: h3llo-key
   protocol: S3
-  # Driver-returned credentials are written to this Secret in the namespace.
-  accessSecretName: my-bucket-creds
+  bucketClaims:
+    - bucketClaimName: my-bucket
+      accessMode: ReadWrite
+      accessSecretName: my-bucket-creds
