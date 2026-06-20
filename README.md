@@ -88,11 +88,51 @@ H3_KEY_ID=... H3_SECRET_KEY=... H3LLO_PROJECT_ID=... go run -tags smoke ./cmd/sm
 
 Exercises create → grant → delete against `api.h3llo.cloud`.
 
-## Status / TODO
+## Validation status
 
-- [x] HMAC auth against `api.h3llo.cloud` — verified live (create/grant/delete).
-- [x] S3 data-plane endpoint: `https://storage.h3llo.cloud` (Ceph Object Gateway, SigV4).
-- [ ] Pin the COSI sidecar image tag in `deploy/driver.yaml` to a release you trust.
+Tested live on a k3s cluster against the real h3llo backend, COSI v1alpha2
+(`sigs.k8s.io/container-object-storage-interface` @ `46fde39`):
+
+- [x] **Create** — BucketClaim → Bucket provisioned in h3llo, `readyToUse`.
+- [x] **GrantAccess** — BucketAccess → Secret with S3 creds + endpoint delivered.
+- [x] **RevokeAccess** — no-op revoke, finalizer released.
+- [ ] **Delete** — see limitation below.
+
+## Known limitations
+
+### Bucket deletion (upstream gap)
+
+On the current COSI v1alpha2 build the **sidecar does not implement Bucket
+deletion** — its bucket reconciler is a `// TODO` that removes the protection
+finalizer and returns `"deletion is not yet implemented"`, so it never calls
+the driver. Result: the k8s `Bucket` object is removed but the **backend bucket
+is orphaned**. Tracked in
+[issue #165](https://github.com/kubernetes-sigs/container-object-storage-interface/issues/165)
+("Bucket Sidecar deletion"); implemented by draft
+[PR #320](https://github.com/kubernetes-sigs/container-object-storage-interface/pull/320).
+
+This driver's `DriverDeleteBucket` **is** implemented and correct (unit-tested +
+standalone-verified, and matches PR #320's call contract); it is simply not
+invoked yet. Until #320 merges, delete buckets out-of-band
+(`DELETE /api/s3/v1/buckets/{name}`) and clear the stuck finalizer.
+
+Also note [#227](https://github.com/kubernetes-sigs/container-object-storage-interface/issues/227)
+(provision/deprovision reconcile race) — a controller restart may be needed to
+unstick the first reconcile on rc builds.
+
+### Public buckets
+
+Not exposed via the h3llo management (HMAC) API — `POST /api/s3/v1/buckets/public`
+returns `405` there; the console (JWT) path is UI-only. It is achievable
+**S3-natively** on the Ceph RGW backend with the access keys, e.g. a public-read
+`PutBucketPolicy`. The anonymous object URL is tenant-prefixed:
+
+```
+https://storage.h3llo.cloud/{projectId-with-dashes-as-underscores}:{bucketName}/{key}
+```
+
+Could be surfaced later as a BucketClass parameter (e.g. `public: "true"`) that
+makes the driver issue `PutBucketPolicy` after create. Not yet implemented.
 
 ## License
 
