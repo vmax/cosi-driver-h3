@@ -173,7 +173,7 @@ func (c *Client) do(ctx context.Context, method, path, query string, payload any
 			continue // retry transport errors
 		}
 		raw, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("read response body: %w", err)
 			continue
