@@ -1,21 +1,6 @@
-# Example COSI objects exercising the h3llo driver end to end (API v1alpha2).
-# Apply after driver.yaml is running. driverName MUST equal driver.DriverName.
----
-apiVersion: objectstorage.k8s.io/v1alpha2
-kind: BucketClass
-metadata:
-  name: h3llo-standard
-spec:
-  driverName: s3.h3llo.cloud
-  deletionPolicy: Delete # Retain to keep the h3llo bucket on claim delete
----
-apiVersion: objectstorage.k8s.io/v1alpha2
-kind: BucketAccessClass
-metadata:
-  name: h3llo-key
-spec:
-  driverName: s3.h3llo.cloud
-  authenticationType: Key # h3llo supports Key (shared access key pair) only
+# Example COSI usage (API v1alpha2).
+# Assumes the BucketClass (h3llo-standard) and BucketAccessClass (h3llo-key)
+# already exist — the Helm chart creates them by default.
 ---
 # Request a bucket.
 apiVersion: objectstorage.k8s.io/v1alpha2
