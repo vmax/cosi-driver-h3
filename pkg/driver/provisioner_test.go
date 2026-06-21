@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
@@ -263,6 +265,46 @@ func TestGrantBucketAccessNoBuckets(t *testing.T) {
 		&cosi.DriverGrantBucketAccessRequest{AuthenticationType: keyAuth()})
 	if err == nil {
 		t.Fatal("expected error with no buckets")
+	}
+}
+
+func TestGetExistingBucket(t *testing.T) {
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/s3/v1/buckets/adopt-me" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	resp, err := s.DriverGetExistingBucket(context.Background(),
+		&cosi.DriverGetExistingBucketRequest{ExistingBucketId: "adopt-me"})
+	if err != nil {
+		t.Fatalf("DriverGetExistingBucket: %v", err)
+	}
+	if resp.GetBucketId() != "adopt-me" {
+		t.Errorf("bucketId = %q", resp.GetBucketId())
+	}
+	if resp.GetProtocols().GetS3().GetBucketId() != "adopt-me" {
+		t.Errorf("protocols s3 = %+v", resp.GetProtocols().GetS3())
+	}
+}
+
+func TestGetExistingBucketNotFound(t *testing.T) {
+	s := testServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	_, err := s.DriverGetExistingBucket(context.Background(),
+		&cosi.DriverGetExistingBucketRequest{ExistingBucketId: "ghost"})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("want NotFound, got %v", err)
+	}
+}
+
+func TestGetExistingBucketEmptyID(t *testing.T) {
+	s := testServer(t, func(http.ResponseWriter, *http.Request) {})
+	if _, err := s.DriverGetExistingBucket(context.Background(),
+		&cosi.DriverGetExistingBucketRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("want InvalidArgument, got %v", err)
 	}
 }
 

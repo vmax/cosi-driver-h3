@@ -114,6 +114,24 @@ func (c *Client) CreateBucket(ctx context.Context, name string) (Credentials, er
 	return cr.Credentials, nil
 }
 
+// BucketExists reports whether a bucket with the given name exists in the
+// project (GET /buckets/{name}). Used for static provisioning.
+func (c *Client) BucketExists(ctx context.Context, name string) (bool, error) {
+	query := "project_id=" + c.projectID
+	code, raw, err := c.do(ctx, http.MethodGet, "/api/s3/v1/buckets/"+name, query, nil)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case code >= 200 && code < 300:
+		return true, nil
+	case code == http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("get bucket %q: status %d: %s", name, code, raw)
+	}
+}
+
 // DeleteBucket deletes a bucket by name. A 404 is treated as success so the
 // call is idempotent.
 func (c *Client) DeleteBucket(ctx context.Context, name string) error {

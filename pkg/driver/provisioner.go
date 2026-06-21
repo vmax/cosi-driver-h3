@@ -111,6 +111,30 @@ func (s *ProvisionerServer) DriverCreateBucket(
 	}, nil
 }
 
+// DriverGetExistingBucket verifies a statically-provisioned bucket exists in
+// h3llo and returns its id + protocol info. bucket_id == backend bucket name.
+func (s *ProvisionerServer) DriverGetExistingBucket(
+	ctx context.Context, req *cosi.DriverGetExistingBucketRequest,
+) (*cosi.DriverGetExistingBucketResponse, error) {
+	name := req.GetExistingBucketId()
+	if name == "" {
+		return nil, status.Error(codes.InvalidArgument, "existing_bucket_id is required")
+	}
+	klog.InfoS("DriverGetExistingBucket", "bucketId", name)
+
+	exists, err := s.client.BucketExists(ctx, name)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "check bucket: %v", err)
+	}
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "bucket %q not found", name)
+	}
+	return &cosi.DriverGetExistingBucketResponse{
+		BucketId:  name,
+		Protocols: s.s3BucketInfo(name),
+	}, nil
+}
+
 // DriverDeleteBucket deletes a bucket by name (bucket_id == name). Idempotent.
 func (s *ProvisionerServer) DriverDeleteBucket(
 	ctx context.Context, req *cosi.DriverDeleteBucketRequest,

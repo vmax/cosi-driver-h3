@@ -102,6 +102,42 @@ func TestDeleteBucketError(t *testing.T) {
 	}
 }
 
+func TestBucketExists(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code int
+		want bool
+		err  bool
+	}{
+		{"exists", 200, true, false},
+		{"not found", 404, false, false},
+		{"server error", 500, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/s3/v1/buckets/b1" {
+					t.Errorf("path = %q", r.URL.Path)
+				}
+				w.WriteHeader(tc.code)
+			})
+			defer srv.Close()
+			got, err := c.BucketExists(context.Background(), "b1")
+			if tc.err {
+				if err == nil {
+					t.Fatal("want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDeleteBucketPathAndQuery(t *testing.T) {
 	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {

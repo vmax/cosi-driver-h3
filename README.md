@@ -155,9 +155,11 @@ reject a bad prefix at BucketClass apply time instead.
 
 Static / exact names are intentionally **not** supported as a parameter
 (h3llo create is idempotent-by-name → multiple claims would silently share one
-backend bucket, and a delete would drop shared data). To target a specific
-existing bucket, use COSI static provisioning (`BucketClaim.spec.existingBucketName`)
-once `DriverGetExistingBucket` is implemented.
+backend bucket, and a delete would drop shared data). To bind a specific
+existing bucket, use COSI **static provisioning** instead — set
+`BucketClaim.spec.existingBucketName` to the backend bucket name. The driver
+implements `DriverGetExistingBucket` (verifies the bucket exists in h3llo and
+returns its id + S3 protocol info).
 
 Consumers should always read the bucket name from the BucketAccess Secret
 (`COSI_S3_BUCKET_ID`), never hardcode it — the prefix is transparent to them.
