@@ -59,7 +59,7 @@ Driver reads config from env:
 | `H3LLO_PROJECT_ID` | yes | — | project UUID |
 | `H3_API_ENDPOINT` | no | `https://api.h3llo.cloud` | public API base |
 | `H3LLO_S3_ENDPOINT` | no | `https://storage.h3llo.cloud` | S3 endpoint handed to consumers |
-| `H3LLO_REGION` | no | `us-east-1` | region advertised to consumers |
+| `H3LLO_REGION` | no | `ru-1` | region advertised to consumers |
 
 ## Build & test
 
@@ -120,19 +120,36 @@ Also note [#227](https://github.com/kubernetes-sigs/container-object-storage-int
 (provision/deprovision reconcile race) — a controller restart may be needed to
 unstick the first reconcile on rc builds.
 
-### Public buckets
+## Public buckets
 
-Not exposed via the h3llo management (HMAC) API — `POST /api/s3/v1/buckets/public`
-returns `405` there; the console (JWT) path is UI-only. It is achievable
-**S3-natively** on the Ceph RGW backend with the access keys, e.g. a public-read
-`PutBucketPolicy`. The anonymous object URL is tenant-prefixed:
+COSI has no public-bucket concept, so this is a driver extension via
+`BucketClass.parameters`. Set `public: "true"` and the driver applies a
+public-read `PutBucketPolicy` to each provisioned bucket S3-natively on the
+Ceph RGW backend (the h3llo management API has no public toggle — its
+`/buckets/public` is console/JWT-only):
+
+```yaml
+apiVersion: objectstorage.k8s.io/v1alpha2
+kind: BucketClass
+metadata:
+  name: h3llo-public
+spec:
+  driverName: s3.h3llo.cloud
+  deletionPolicy: Delete
+  parameters:
+    public: "true"   # also accepts "read" / "public-read"
+```
+
+Public grants anonymous **read** (`s3:GetObject`); writes still need the
+BucketAccess credentials. The anonymous object URL is tenant-prefixed:
 
 ```
 https://storage.h3llo.cloud/{projectId-with-dashes-as-underscores}:{bucketName}/{key}
 ```
 
-Could be surfaced later as a BucketClass parameter (e.g. `public: "true"`) that
-makes the driver issue `PutBucketPolicy` after create. Not yet implemented.
+(COSI's v1alpha2 bucket-info is a fixed struct with no free-form field, so the
+public URL isn't surfaced through the credentials Secret — construct it from the
+project ID + bucket ID.)
 
 ## License
 

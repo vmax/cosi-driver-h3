@@ -8,6 +8,10 @@ metadata:
 spec:
   driverName: s3.h3llo.cloud
   deletionPolicy: {{ .Values.bucketClass.deletionPolicy }}
+  {{- with .Values.bucketClass.parameters }}
+  parameters:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- if .Values.bucketAccessClass.create }}
 ---

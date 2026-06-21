@@ -36,7 +36,7 @@ h3:
   # S3 data-plane endpoint handed to bucket consumers.
   s3Endpoint: "https://storage.h3llo.cloud"
   # Region advertised to consumers.
-  region: "us-east-1"
+  region: "ru-1"
 
 # API credentials (HMAC key-id + secret).
 credentials:
@@ -52,6 +52,9 @@ bucketClass:
   create: true
   name: h3llo-standard
   deletionPolicy: Delete # Retain | Delete
+  # Driver-specific parameters passed to DriverCreateBucket.
+  # Set public: "true" to apply a public-read policy to provisioned buckets.
+  parameters: {}
 bucketAccessClass:
   create: true
   name: h3llo-key

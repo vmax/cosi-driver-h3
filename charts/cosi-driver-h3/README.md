@@ -39,7 +39,7 @@ helm install h3-cosi ./charts/cosi-driver-h3 \
 | `credentials.existingSecret` | `""` | use a pre-made Secret instead |
 | `h3.apiEndpoint` | `https://api.h3llo.cloud` | management API |
 | `h3.s3Endpoint` | `https://storage.h3llo.cloud` | S3 data plane |
-| `h3.region` | `us-east-1` | |
+| `h3.region` | `ru-1` | |
 | `sidecar.image.tag` | pinned rc | pin to a trusted COSI sidecar release |
 | `bucketClass.create` / `bucketAccessClass.create` | `true` | create default classes |
 

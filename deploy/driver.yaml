@@ -95,7 +95,7 @@ spec:
             - name: H3LLO_S3_ENDPOINT
               value: "https://storage.h3llo.cloud"
             - name: H3LLO_REGION
-              value: "us-east-1"
+              value: "ru-1"
             - name: H3_API_ENDPOINT
               value: "https://api.h3llo.cloud"
           envFrom:

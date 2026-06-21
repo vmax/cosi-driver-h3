@@ -33,7 +33,7 @@ type Config struct {
 func ConfigFromEnv() (Config, error) {
 	c := Config{
 		S3Endpoint: getenv("H3LLO_S3_ENDPOINT", "https://storage.h3llo.cloud"),
-		Region:     getenv("H3LLO_REGION", "us-east-1"),
+		Region:     getenv("H3LLO_REGION", "ru-1"),
 		APIBaseURL: getenv("H3_API_ENDPOINT", "https://api.h3llo.cloud"),
 		KeyID:      os.Getenv("H3_KEY_ID"),
 		SecretKey:  os.Getenv("H3_SECRET_KEY"),

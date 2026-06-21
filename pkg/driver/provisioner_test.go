@@ -51,6 +51,70 @@ func TestCreateBucketReturnsIDAndProtocol(t *testing.T) {
 	}
 }
 
+func TestIsPublicParam(t *testing.T) {
+	for _, tc := range []struct {
+		val  string
+		want bool
+	}{{"true", true}, {"True", true}, {"read", true}, {"public-read", true},
+		{"false", false}, {"", false}, {"yes", false}} {
+		if got := isPublicParam(map[string]string{"public": tc.val}); got != tc.want {
+			t.Errorf("public=%q → %v, want %v", tc.val, got, tc.want)
+		}
+	}
+	if isPublicParam(nil) {
+		t.Error("nil params should not be public")
+	}
+}
+
+func TestCreateBucketPublicAppliesPolicy(t *testing.T) {
+	// Mock S3 endpoint to capture the PutBucketPolicy.
+	var policyApplied bool
+	s3srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.URL.Query()["policy"]; ok && r.Method == http.MethodPut {
+			policyApplied = true
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer s3srv.Close()
+
+	// Mock h3llo mgmt API for CreateBucket (returns creds).
+	apisrv := httptest.NewServer(http.HandlerFunc(credsHandler))
+	defer apisrv.Close()
+
+	s := NewProvisionerServer(Config{
+		S3Endpoint: s3srv.URL, Region: "ru-1",
+		APIBaseURL: apisrv.URL, KeyID: "k", SecretKey: "s", ProjectID: "p",
+	})
+
+	_, err := s.DriverCreateBucket(context.Background(), &cosi.DriverCreateBucketRequest{
+		Name: "pub", Parameters: map[string]string{"public": "true"},
+	})
+	if err != nil {
+		t.Fatalf("DriverCreateBucket(public): %v", err)
+	}
+	if !policyApplied {
+		t.Error("expected PutBucketPolicy on public bucket")
+	}
+}
+
+func TestCreateBucketPrivateSkipsPolicy(t *testing.T) {
+	s3srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("private bucket must not call S3 PutBucketPolicy")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer s3srv.Close()
+	apisrv := httptest.NewServer(http.HandlerFunc(credsHandler))
+	defer apisrv.Close()
+	s := NewProvisionerServer(Config{
+		S3Endpoint: s3srv.URL, Region: "ru-1",
+		APIBaseURL: apisrv.URL, KeyID: "k", SecretKey: "s", ProjectID: "p",
+	})
+	if _, err := s.DriverCreateBucket(context.Background(),
+		&cosi.DriverCreateBucketRequest{Name: "priv"}); err != nil {
+		t.Fatalf("DriverCreateBucket: %v", err)
+	}
+}
+
 func TestCreateBucketEmptyName(t *testing.T) {
 	s := testServer(t, func(http.ResponseWriter, *http.Request) {})
 	if _, err := s.DriverCreateBucket(context.Background(),

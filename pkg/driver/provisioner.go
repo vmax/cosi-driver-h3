@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -9,7 +10,18 @@ import (
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
 
 	"github.com/vmax/cosi-driver-h3/pkg/h3llo"
+	h3s3 "github.com/vmax/cosi-driver-h3/pkg/s3"
 )
+
+// isPublicParam reports whether BucketClass parameters request a public-read
+// bucket. Accepts public: "true" (case-insensitive).
+func isPublicParam(params map[string]string) bool {
+	switch strings.ToLower(params["public"]) {
+	case "true", "read", "public-read":
+		return true
+	}
+	return false
+}
 
 // ProvisionerServer implements cosi.ProvisionerServer against h3llo.cloud.
 type ProvisionerServer struct {
@@ -47,8 +59,24 @@ func (s *ProvisionerServer) DriverCreateBucket(
 	}
 	klog.InfoS("DriverCreateBucket", "name", name)
 
-	if _, err := s.client.CreateBucket(ctx, name); err != nil {
+	creds, err := s.client.CreateBucket(ctx, name)
+	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create bucket: %v", err)
+	}
+
+	// Optional public-read, requested via BucketClass parameters. h3llo's
+	// management API has no public toggle, so we set it S3-natively on the
+	// Ceph RGW backend with the project's shared keys.
+	if isPublicParam(req.GetParameters()) {
+		klog.InfoS("DriverCreateBucket: applying public-read policy", "name", name)
+		if err := h3s3.MakeBucketPublicRead(ctx, h3s3.Config{
+			Endpoint:        s.cfg.S3Endpoint,
+			Region:          s.cfg.Region,
+			AccessKeyID:     creds.AccessKeyID,
+			SecretAccessKey: creds.SecretAccessKey,
+		}, name); err != nil {
+			return nil, status.Errorf(codes.Internal, "make bucket public: %v", err)
+		}
 	}
 
 	return &cosi.DriverCreateBucketResponse{
