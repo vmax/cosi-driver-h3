@@ -71,11 +71,23 @@ make docker IMG=...   # container image
 
 ## Deploy
 
-1. Install COSI CRDs + controller (once per cluster) from
-   [kubernetes-sigs/container-object-storage-interface](https://github.com/kubernetes-sigs/container-object-storage-interface).
-2. Set `H3_KEY_ID` / `H3_SECRET_KEY` / `H3LLO_PROJECT_ID` in the Secret in `deploy/driver.yaml`.
-3. `kubectl apply -f deploy/driver.yaml`
-4. Try it: `kubectl apply -f deploy/examples.yaml`
+Install via the Helm chart (see [`charts/cosi-driver-h3`](charts/cosi-driver-h3)).
+
+1. Install COSI CRDs + controller once per cluster:
+   ```sh
+   kubectl apply -k 'https://github.com/kubernetes-sigs/container-object-storage-interface//?ref=release-0.2'
+   ```
+2. Install the driver:
+   ```sh
+   helm install h3-cosi ./charts/cosi-driver-h3 \
+     --namespace h3llo-cosi --create-namespace \
+     --set h3.projectId=<PROJECT_UUID> \
+     --set credentials.keyId=<API_KEY_ID> \
+     --set credentials.secretKey=<API_SECRET>
+   ```
+   Override the COSI sidecar image with `--set sidecar.image.repository=...,sidecar.image.tag=...`
+   (add `--set imagePullSecrets[0].name=<secret>` for a private one).
+3. Try it: `kubectl apply -f deploy/examples.yaml`
 
 The granted credentials land in Secret `my-bucket-creds` (keys: `accessKeyID`,
 `accessSecretKey`, `endpoint`, `region`, `bucketName`).
