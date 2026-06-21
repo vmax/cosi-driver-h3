@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -12,6 +14,27 @@ import (
 	"github.com/vmax/cosi-driver-h3/pkg/h3llo"
 	h3s3 "github.com/vmax/cosi-driver-h3/pkg/s3"
 )
+
+// bucketNameRE enforces h3llo's bucket-name rules: start with a lowercase
+// letter, only lowercase letters/digits/hyphens, end with a letter or digit.
+var bucketNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+
+const maxBucketNameLen = 63
+
+// backendBucketName derives the backend bucket name from the COSI-provided name
+// and an optional BucketClass parameter "bucketNamePrefix". The prefix is
+// prepended to keep the UUID suffix (uniqueness). The result is validated
+// against h3llo's naming rules.
+func backendBucketName(cosiName string, params map[string]string) (string, error) {
+	name := params["bucketNamePrefix"] + cosiName
+	if len(name) > maxBucketNameLen {
+		return "", fmt.Errorf("bucket name %q exceeds %d characters", name, maxBucketNameLen)
+	}
+	if !bucketNameRE.MatchString(name) {
+		return "", fmt.Errorf("bucket name %q invalid: must match %s", name, bucketNameRE.String())
+	}
+	return name, nil
+}
 
 // isPublicParam reports whether BucketClass parameters request a public-read
 // bucket. Accepts public: "true" (case-insensitive).
@@ -53,11 +76,14 @@ func (s *ProvisionerServer) s3BucketInfo(bucketID string) *cosi.ObjectProtocolAn
 func (s *ProvisionerServer) DriverCreateBucket(
 	ctx context.Context, req *cosi.DriverCreateBucketRequest,
 ) (*cosi.DriverCreateBucketResponse, error) {
-	name := req.GetName()
-	if name == "" {
+	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "bucket name is required")
 	}
-	klog.InfoS("DriverCreateBucket", "name", name)
+	name, err := backendBucketName(req.GetName(), req.GetParameters())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	klog.InfoS("DriverCreateBucket", "cosiName", req.GetName(), "backendName", name)
 
 	creds, err := s.client.CreateBucket(ctx, name)
 	if err != nil {

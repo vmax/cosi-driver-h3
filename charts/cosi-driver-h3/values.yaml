@@ -60,6 +60,12 @@ bucketAccessClass:
   name: h3llo-key
   authenticationType: Key
 
+# Optional ValidatingAdmissionPolicy (k8s >=1.30) that rejects an invalid
+# bucketNamePrefix at BucketClass apply time. Off by default (needs cluster
+# RBAC to manage admission policies).
+validatingAdmissionPolicy:
+  enabled: false
+
 serviceAccount:
   name: "" # defaults to the fullname
 

@@ -132,6 +132,36 @@ Also note [#227](https://github.com/kubernetes-sigs/container-object-storage-int
 (provision/deprovision reconcile race) — a controller restart may be needed to
 unstick the first reconcile on rc builds.
 
+## Bucket naming
+
+By default the backend bucket is named `bc-<uuid>` (the COSI controller's name).
+Set `bucketNamePrefix` on the BucketClass to prepend a prefix while keeping the
+UUID suffix (so names stay unique):
+
+```yaml
+spec:
+  driverName: s3.h3llo.cloud
+  deletionPolicy: Delete
+  parameters:
+    bucketNamePrefix: "team-a-"   # → team-a-bc-<uuid>
+```
+
+h3llo bucket-name rules: `^[a-z][a-z0-9-]*[a-z0-9]$`, ≤ 63 chars. Since
+`bc-<uuid>` is 39 chars, the prefix must be ≤ 24 chars and lowercase. The driver
+validates the final name and rejects violations with gRPC `InvalidArgument`
+(surfaced on `Bucket.status.error` + an Event). Enable the chart's optional
+`ValidatingAdmissionPolicy` (`--set validatingAdmissionPolicy.enabled=true`) to
+reject a bad prefix at BucketClass apply time instead.
+
+Static / exact names are intentionally **not** supported as a parameter
+(h3llo create is idempotent-by-name → multiple claims would silently share one
+backend bucket, and a delete would drop shared data). To target a specific
+existing bucket, use COSI static provisioning (`BucketClaim.spec.existingBucketName`)
+once `DriverGetExistingBucket` is implemented.
+
+Consumers should always read the bucket name from the BucketAccess Secret
+(`COSI_S3_BUCKET_ID`), never hardcode it — the prefix is transparent to them.
+
 ## Public buckets
 
 COSI has no public-bucket concept, so this is a driver extension via

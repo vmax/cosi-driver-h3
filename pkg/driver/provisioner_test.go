@@ -2,8 +2,10 @@ package driver
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
@@ -112,6 +114,76 @@ func TestCreateBucketPrivateSkipsPolicy(t *testing.T) {
 	if _, err := s.DriverCreateBucket(context.Background(),
 		&cosi.DriverCreateBucketRequest{Name: "priv"}); err != nil {
 		t.Fatalf("DriverCreateBucket: %v", err)
+	}
+}
+
+func TestBackendBucketName(t *testing.T) {
+	const uuid = "bc-5c7009ba-b4ed-42f5-b03e-dfe611586f59" // 39 chars, compliant
+	cases := []struct {
+		name, prefix, in string
+		want             string
+		wantErr          bool
+	}{
+		{"no prefix", "", uuid, uuid, false},
+		{"valid prefix", "team-a-", uuid, "team-a-" + uuid, false},
+		{"prefix too long", strings.Repeat("a", 25), uuid, "", true}, // 25+39=64 > 63
+		{"prefix starts non-letter", "1team-", uuid, "", true},
+		{"prefix uppercase", "Team-", uuid, "", true},
+		{"prefix illegal char", "team_", uuid, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := backendBucketName(c.in, map[string]string{"bucketNamePrefix": c.prefix})
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestCreateBucketWithPrefix(t *testing.T) {
+	var gotBody string
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"credentials":{"access_key_id":"AK","secret_access_key":"SK"}}`))
+	})
+	resp, err := s.DriverCreateBucket(context.Background(), &cosi.DriverCreateBucketRequest{
+		Name: "bc-abc", Parameters: map[string]string{"bucketNamePrefix": "team-"},
+	})
+	if err != nil {
+		t.Fatalf("DriverCreateBucket: %v", err)
+	}
+	if resp.GetBucketId() != "team-bc-abc" {
+		t.Errorf("bucketId = %q, want team-bc-abc", resp.GetBucketId())
+	}
+	if !strings.Contains(gotBody, `"name":"team-bc-abc"`) {
+		t.Errorf("create body = %s, want name team-bc-abc", gotBody)
+	}
+	if resp.GetProtocols().GetS3().GetBucketId() != "team-bc-abc" {
+		t.Errorf("s3 bucketId = %q", resp.GetProtocols().GetS3().GetBucketId())
+	}
+}
+
+func TestCreateBucketInvalidPrefixRejected(t *testing.T) {
+	s := testServer(t, func(http.ResponseWriter, *http.Request) {
+		t.Error("must not call API on invalid name")
+	})
+	_, err := s.DriverCreateBucket(context.Background(), &cosi.DriverCreateBucketRequest{
+		Name: "bc-abc", Parameters: map[string]string{"bucketNamePrefix": "BAD_"},
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for bad prefix")
 	}
 }
 

@@ -1,0 +1,36 @@
+{{- if .Values.validatingAdmissionPolicy.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "cosi-driver-h3.fullname" . }}-bucketnameprefix
+  labels:
+    {{- include "cosi-driver-h3.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["objectstorage.k8s.io"]
+        apiVersions: ["v1alpha2"]
+        resources: ["bucketclasses"]
+        operations: ["CREATE", "UPDATE"]
+  # Only validate BucketClasses targeting this driver.
+  matchConditions:
+    - name: only-h3-driver
+      expression: "object.spec.driverName == 's3.h3llo.cloud'"
+  validations:
+    - expression: >-
+        !has(object.spec.parameters) || !('bucketNamePrefix' in object.spec.parameters) ||
+        (object.spec.parameters.bucketNamePrefix.matches('^[a-z][a-z0-9-]*$') &&
+         size(object.spec.parameters.bucketNamePrefix) <= 24)
+      message: "bucketNamePrefix must be lowercase matching ^[a-z][a-z0-9-]*$ and <=24 chars (leaves room for the bc-<uuid> suffix within the 63-char limit)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "cosi-driver-h3.fullname" . }}-bucketnameprefix
+  labels:
+    {{- include "cosi-driver-h3.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "cosi-driver-h3.fullname" . }}-bucketnameprefix
+  validationActions: ["Deny"]
+{{- end }}
